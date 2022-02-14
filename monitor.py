@@ -24,7 +24,7 @@ def post_message_to_slack(text, blocks=None):
     }).json()
 
 
-# In case we have large list of servers we split in two so we can use paralel monitoring
+# In case we have large list of servers we split in two so we can use multiprocess monitoring
 list_one = ['https://github.com']
 list_two = ['https://www.youtube.com']
 
