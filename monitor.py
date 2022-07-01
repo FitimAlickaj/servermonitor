@@ -1,132 +1,82 @@
-import time
+from fastapi import FastAPI
+from pydantic import BaseModel
 import requests
 from requests.exceptions import HTTPError
-from datetime import datetime
-import socket
-import multiprocessing
-from termcolor import colored
-import json
+app = FastAPI()
 
-
-#Slack Info
-slack_token = 'xxx token'
-slack_channel = '#general'
-slack_icon_emoji = ':eyes:'
-slack_user_name = 'Support' # name of app in slack
-def post_message_to_slack(text, blocks=None):
-    return requests.post('https://slack.com/api/chat.postMessage', {
-        'token': slack_token,
-        'channel': slack_channel,
-        'text': text,
-        'icon_emoji': slack_icon_emoji,
-        'username': slack_user_name,
-        'blocks': json.dumps(blocks) if blocks else None
-    }).json()
-
-
-# In case we have large list of servers we split in two so we can use multiprocess monitoring
-list_one = ['https://github.com']
-list_two = ['https://www.youtube.com']
-
-
-
-temp_down = []
-def processOne():
-    fine_server = []
-    try:
-        for server in list_one:
-            IPaddress=socket.gethostbyname(socket.gethostname())
-            if IPaddress=="127.0.0.1":
-                print("No internet, your localhost is "+ IPaddress)
-                break
-            else:
-                try:
-                    response = requests.get(server)
-                    response.raise_for_status()
-                    if response.status_code == 200:
-                        fine_server.append(server)
-                        print(server  + colored(" OK" , "green"))
-                    #checking for Http errors
-                except HTTPError as http_err:
-                    if server in temp_down:
-                        continue
-                    else:
-                        #post_message_to_slack(server) # Send msg to slack for down server
-                        print(server + colored(" DOWN" , "red"))
-                        temp_down.append(server)
-                        #
-                except Exception as error:
-                        # checking for other problems
-                    if server in temp_down:
-                        continue
-                    else:
-                        #post_message_to_slack(server) # Send msg to slack for down server
-                        print(server + colored(" DOWN" , "red"))
-                        temp_down.append(server)
-    except Exception as Baseerror:
-        print("Crashed " + str(Baseerror))
-    finally:
-        for server in fine_server: 
-            if server in temp_down:
-                print("Fixed " + server)
-                #post_message_to_slack(server) # If we want to send msg to slack for fixed server
-                temp_down.remove(server)
-        
-
+class Server(BaseModel):
+    url: str
     
-def processTwo():
-    fine_server = []
+tested_servers = []
+up_servers = []
+down_servers = []
+
+@app.get("/all")
+async def all_servers():
+    for server in tested_servers:
+        try:
+            response = requests.get(server,timeout=4)
+            response.raise_for_status()
+            if response.status_code == 200:
+                status = "Fine " + str(response.status_code)
+                up_servers.append(server)
+        except HTTPError as error:
+            down_servers.append(server)
+        except Exception as error:
+            down_servers.append(server) 
+    return {"Up Servers":up_servers,"DownServers":down_servers}
+
+@app.get('/monitor/')
+async def monitor(server: str):
+    if server in tested_servers:
+        try:
+            response = requests.get(server,timeout=4)
+            response.raise_for_status()
+            if response.status_code == 200:
+                status = "Fine " + str(response.status_code)
+                return {"Status":"Up"}
+        except HTTPError as error:
+            return {"Status":"Down"}
+        except Exception as error:
+            return {"Status":"Down"} 
+    else:
+        return {"Status":"Please use Post to add this server"}
+
+@app.post('/server/add/')
+async def add_Server(items: Server):
+    tested_servers.append(items.url)
     try:
-        for server in list_two:
-            IPaddress=socket.gethostbyname(socket.gethostname())
-            if IPaddress=="127.0.0.1":
-                print("No internet, your localhost is "+ IPaddress)
-                break
-            else:
-                try:
-                    response = requests.get(server)
-                    response.raise_for_status()
-                    # checking if server is fine
-                    if response.status_code == 200:
-                        fine_server.append(server)
-                        print(server  + colored(" OK" , "green") )
-                # checking for http errors
-                except HTTPError as http_err:
-                    if server in temp_down:
-                        continue
-                    else:
-                        #post_message_to_slack(server) # Send msg to slack for down server
-                        print(server + colored(" DOWN" , "red"))
-                        temp_down.append(server)
-                    # checking for other problems
-                except Exception as error:
-                    if server in temp_down:
-                        continue
-                    else:
-                        #post_message_to_slack(server) # Send msg to slack for down server
-                        print(server + colored(" DOWN" , "red"))
-                        temp_down.append(server)
-    except Exception as Baseerror:
-        print("Crashed " + str(Baseerror))
-    finally:
-        for server in fine_server: 
-            if server in temp_down:
-                print("Fixed " + server)
-                temp_down.remove(server)
-        
-        
+        response = requests.get(items.url,timeout=4)
+        response.raise_for_status()
+        if response.status_code == 200:
+            status = "Fine " + str(response.status_code)
+            return {"Status":"Up"}
+    except HTTPError as error:
+        return {"Status":"Down"}
+    except Exception as error:
+        return {"Status":"Down"}
+
+
+
+@app.put('/server/update')
+async def update_server(server: str,newserver: str):
+    if server in tested_servers:
+        idx = tested_servers.index(server)
+        tested_servers[idx] = newserver
+        return {"Status":"Updated"}
+    else:
+        return {"Status":"Not Found"}
+
+@app.delete('/server/delete/')
+async def delete_Server(server: str):
+    if server in tested_servers:
+        tested_servers.remove(server)
+        return {"Status":"Deleted"}
+    else:
+        {"Status":"Not Found"}
 
 
 
 
-if __name__ == "__main__":
-    p1 = multiprocessing.Process(target=processOne)
-    p2 = multiprocessing.Process(target=processTwo)
-    p1.start()
-    p2.start()
-    p1.join()
-    p2.join()
-    print("List One  " + colored("Done ", "cyan"))
-    print("List Two  " + colored("Done ", "cyan"))
 
-    
+
